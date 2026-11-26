@@ -99,4 +99,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Uninstall.ps1
 
 汉化词库与补丁器来自 [yiheng8023/antigravity-chinese v3.3.65](https://github.com/yiheng8023/antigravity-chinese/tree/v3.3.65)，固定提交为 `98301f853d3af3d49ae0da17fa8d89425473d037`。上游版权声明见 [patcher/LICENSE](patcher/LICENSE)。Antigravity 程序请从 Google 官方渠道获取。
 
-本项目的部分开发、测试和发布工作由 OpenAI Codex 协助完成。
+本项目的部分开发、测试和发布工作由 [OpenAI Codex](https://github.com/codex) 协助完成。
