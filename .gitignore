@@ -4,6 +4,8 @@ patcher/node_modules/
 patcher/dict/zh-CN.json
 config.json
 state.json
+pending.json
+check-now.request
 watch.lock
 watch*.log
 backups/

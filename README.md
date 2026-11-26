@@ -17,6 +17,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 
 如果 Antigravity 安装在自定义位置，可追加 `-AntigravityPath 'D:\Apps\Antigravity\Antigravity.exe'`。也可以用 `-PythonPath` 和 `-NodePath` 指定解释器路径。
 
+从 v0.1.0 升级时，先运行卸载脚本并省略 `-RestoreEnglish`，再用新版安装脚本安装。备份和已装汉化会保留。
+
 ### 让 Agent 安装
 
 将以下提示词发给能在本机运行 PowerShell 的 Agent。
@@ -32,8 +34,8 @@ https://github.com/yuzhenglin666/antigravity-zh-sync
 用脚本提供的路径参数。只有缺少依赖、权限不足或需要我处理正在运行的会话时，
 再指出具体问题。
 
-安装后检查任务计划程序中的 AntigravityZhSync 是否已启用并运行，再查看
-%LOCALAPPDATA%\AntigravityZhSync\watch.log，分别报告后台任务状态和汉化状态。
+安装后运行 Manage.ps1 -Action Status，分别报告后台任务状态和汉化状态。
+需要排查时，查看 %LOCALAPPDATA%\AntigravityZhSync\watch.log。
 如果日志显示补丁已经准备好、仍在等待客户端退出，请提醒我从系统托盘退出
 Antigravity。等日志出现 installed 后再打开客户端。请保留正在运行的会话，
 并使用项目自带的备份与还原流程。
@@ -41,10 +43,24 @@ Antigravity。等日志出现 installed 后再打开客户端。请保留正在�
 
 ### 检查安装状态
 
-如果安装时 Antigravity 正在运行，从系统托盘彻底退出客户端。日志出现 `installed` 后，再打开 Antigravity。
+运行下面的命令可以查看客户端版本、后台任务状态和当前词库。
 
-- 后台任务 `AntigravityZhSync` 可在 Windows 任务计划程序中查看。
-- 日志位于 `%LOCALAPPDATA%\AntigravityZhSync\watch.log`。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Manage.ps1 -Action Status
+```
+
+| 状态 | 含义 |
+| --- | --- |
+| `installed` | 当前版本的匹配词库已安装。 |
+| `fallback_installed` | 临时词库已安装，后台会继续查找匹配词库。 |
+| `waiting_for_exit` | 补丁已准备好。保存工作后，从系统托盘彻底退出 Antigravity。 |
+| `ready_to_apply` | 客户端已退出，补丁等待后台任务安装。 |
+| `awaiting_check` | 当前资源还未确认已汉化。可查看最近一条日志。 |
+| `client_files_missing` | 安装路径下找不到客户端程序或资源包。 |
+
+用同一条命令并将 `Status` 换成 `CheckNow`，可以立即请求检查，跳过下次重试的等待时间。后台任务叫 `AntigravityZhSync`，日志位于 `%LOCALAPPDATA%\AntigravityZhSync\watch.log`。
+
+工具会在补丁准备好和安装完成时发送托盘通知。通知是否显示取决于 Windows 的通知设置。希望静默运行，可在安装命令中加 `-NoNotifications`。
 
 ## 更新与兼容性
 

@@ -2,7 +2,8 @@
 param(
     [string]$AntigravityPath,
     [string]$PythonPath,
-    [string]$NodePath
+    [string]$NodePath,
+    [switch]$NoNotifications
 )
 $ErrorActionPreference = 'Stop'
 $taskName = 'AntigravityZhSync'
@@ -68,7 +69,7 @@ if (-not (Test-Path -LiteralPath $npm -PathType Leaf) -or
 [void][IO.Directory]::CreateDirectory((Join-Path $target 'patcher\dict\scoped'))
 [void][IO.Directory]::CreateDirectory((Join-Path $target 'translations'))
 $files = @(
-    'Watch.py', 'verify.js', 'LICENSE', 'README.md', 'Uninstall.ps1',
+    'Watch.py', 'verify.js', 'LICENSE', 'README.md', 'Uninstall.ps1', 'Manage.ps1', 'Notify.ps1',
     'translations\zh-CN-2.35.2-v3.3.65.json',
     'patcher\cli.js', 'patcher\LICENSE', 'patcher\package.json', 'patcher\package-lock.json',
     'patcher\dict\scoped\official-plugin-descriptions.json', 'patcher\dict\scoped\swarm.json'
@@ -87,7 +88,12 @@ try {
     $env:PATH = $oldPath
 }
 
-$config = [ordered]@{ antigravity = $agy.FullName; python = $PythonPath; node = $NodePath }
+$config = [ordered]@{
+    antigravity = $agy.FullName
+    python = $PythonPath
+    node = $NodePath
+    notifications = -not $NoNotifications.IsPresent
+}
 [IO.File]::WriteAllText((Join-Path $target 'config.json'), ($config | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 & $PythonPath -B (Join-Path $target 'Watch.py') --validate
 if ($LASTEXITCODE -ne 0) { throw 'The installed watcher failed preflight.' }
