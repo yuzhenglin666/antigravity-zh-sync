@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import datetime
 from hashlib import sha256
 import json
@@ -43,11 +44,21 @@ def run(args, timeout=120):
     return result.stdout
 
 
+@contextmanager
+def status_lock():
+    # Windows readers can block rename and deletion, even for an atomic write.
+    with (ROOT / 'status.lock').open('a+b') as guard:
+        guard.seek(0)
+        msvcrt.locking(guard.fileno(), msvcrt.LK_LOCK, 1)
+        yield
+
+
 def report(message):
-    if LOG.exists() and LOG.stat().st_size > 1_000_000:
-        LOG.replace(ROOT / 'watch.previous.log')
-    with LOG.open('a', encoding='utf-8') as log:
-        log.write(f'{datetime.now().isoformat(timespec="seconds")} {message}\n')
+    with status_lock():
+        if LOG.exists() and LOG.stat().st_size > 1_000_000:
+            LOG.replace(ROOT / 'watch.previous.log')
+        with LOG.open('a', encoding='utf-8') as log:
+            log.write(f'{datetime.now().isoformat(timespec="seconds")} {message}\n')
 
 
 def signature(path):
@@ -109,7 +120,7 @@ def notify(event):
         report(f'Windows notification unavailable: {error}')
 
 
-def localization_status():
+def localization_status(*, task_active=True):
     if not EXE.is_file() or not ARCHIVE.is_file():
         return {'status': 'client_files_missing'}
     version = product_version()
@@ -126,7 +137,10 @@ def localization_status():
             and candidate and (ROOT / Path(candidate).name).is_file()):
         result['pending_release'] = pending['release']
         result['pending_matched_release'] = pending['matched_release']
-        result['status'] = 'waiting_for_exit' if result['client_running'] else 'ready_to_apply'
+        if task_active:
+            result['status'] = 'waiting_for_exit' if result['client_running'] else 'ready_to_apply'
+        else:
+            result['status'] = 'staged_inactive'
     try:
         events = LOG.read_text(encoding='utf-8').splitlines()
     except FileNotFoundError:
@@ -233,6 +247,11 @@ class Watcher:
 
         original_hash = signature(original)
         release, dictionary, matched = dictionary_for(version)
+        if not matched and self.pending:
+            pending_version, pending_source, _, pending_candidate, _, pending_matched = self.pending
+            if (pending_matched and pending_version == version and pending_source == installed_hash
+                    and pending_candidate.is_file()):
+                return
         if known and not matched:
             self.retry_after = time.monotonic() + RETRY_INTERVAL
             return
@@ -243,12 +262,13 @@ class Watcher:
             self.log_once(f'{version} validated {release} (upstream match: {matched})')
         if app_running():
             self.log_once(f'{version} {release} staged; waiting for the desktop to exit')
-            self.pending = (version, installed_hash, original_hash, candidate, release, matched)
             pending_status = dict(version=version, source_hash=installed_hash,
                                   release=release, matched_release=matched, candidate=candidate.name)
             if read_state(PENDING_STATUS) != pending_status:
-                save_state(PENDING_STATUS, pending_status)
+                with status_lock():
+                    save_state(PENDING_STATUS, pending_status)
                 notify('ready')
+            self.pending = (version, installed_hash, original_hash, candidate, release, matched)
             return
         self.install(version, installed_hash, original_hash, candidate, release, matched)
 
@@ -266,21 +286,23 @@ class Watcher:
             raise RuntimeError('Rollback copy did not verify')
         pending = ARCHIVE.with_name('app.asar.localization-pending')
         write_file(pending, candidate.read_bytes())
-        if app_running() or signature(ARCHIVE) != installed_hash:
-            return
         patched_hash = signature(pending)
         new_state = dict(version=version, release=release, matched_release=matched,
                          original_hash=original_hash, patched_hash=patched_hash)
-        pending.replace(ARCHIVE)
-        save_state(STATE, new_state)
+        with status_lock():
+            if product_version() != version or signature(ARCHIVE) != installed_hash or app_running():
+                return
+            pending.replace(ARCHIVE)
+            save_state(STATE, new_state)
+            PENDING_STATUS.unlink(missing_ok=True)
         self.pending = None
-        PENDING_STATUS.unlink(missing_ok=True)
         candidate.unlink(missing_ok=True)
         self.log_once(f'{version} installed {release}; backup: {backup.name}')
         notify('installed')
         self.files = None
 
     def tick(self):
+        check_requested = False
         try:
             CHECK_REQUEST.unlink()
         except (FileNotFoundError, PermissionError):
@@ -288,20 +310,22 @@ class Watcher:
         else:
             self.retry_after = 0
             self.result = None
+            check_requested = True
         if self.pending:
             try:
                 same_source = watched_files() == self.files
             except FileNotFoundError:
                 same_source = False
-            if same_source:
-                if app_running():
-                    return
-                pending = self.pending
+            if not same_source:
+                with status_lock():
+                    PENDING_STATUS.unlink(missing_ok=True)
                 self.pending = None
-                self.install(*pending)
+            elif not check_requested:
+                if not app_running():
+                    pending = self.pending
+                    self.pending = None
+                    self.install(*pending)
                 return
-            self.pending = None
-            PENDING_STATUS.unlink(missing_ok=True)
         self.check()
 
 
@@ -334,9 +358,10 @@ def restore_original():
         raise RuntimeError('The original archive did not verify.')
     pending = ARCHIVE.with_name('app.asar.localization-pending')
     write_file(pending, contents)
-    if app_running() or signature(ARCHIVE) != installed['patched_hash']:
-        raise RuntimeError('Antigravity was opened or updated during restore.')
-    pending.replace(ARCHIVE)
+    with status_lock():
+        if product_version() != version or signature(ARCHIVE) != installed['patched_hash'] or app_running():
+            raise RuntimeError('Antigravity was opened or updated during restore.')
+        pending.replace(ARCHIVE)
     report(f'{version} restored from backup')
     print(f'Restored the original Antigravity {version} archive.')
 
@@ -347,7 +372,9 @@ def main():
         return
     if '--status' in sys.argv:
         # ASCII JSON works in both Windows PowerShell and PowerShell 7.
-        print(json.dumps(localization_status(), indent=2))
+        with status_lock():
+            status = localization_status(task_active='--task-inactive' not in sys.argv)
+        print(json.dumps(status, indent=2))
         return
     watcher = Watcher()
     with (ROOT / 'watch.lock').open('a+b') as guard:

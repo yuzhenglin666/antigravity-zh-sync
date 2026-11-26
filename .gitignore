@@ -7,6 +7,7 @@ state.json
 pending.json
 check-now.request
 watch.lock
+status.lock
 watch*.log
 backups/
 candidate-*.asar

@@ -31,5 +31,9 @@ if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
 }
 
 $config = Get-Content -Raw -LiteralPath $configPath -Encoding UTF8 | ConvertFrom-Json
-& $config.python -B (Join-Path $root 'Watch.py') --status
+$statusArgs = @('-B', (Join-Path $root 'Watch.py'), '--status')
+if (-not $task -or $task.State -eq 'Disabled') {
+    $statusArgs += '--task-inactive'
+}
+& $config.python @statusArgs
 if ($LASTEXITCODE -ne 0) { throw 'Unable to read localization status.' }
