@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+patcher/node_modules/
+patcher/dict/zh-CN.json
+config.json
+state.json
+watch.lock
+watch*.log
+backups/
+candidate-*.asar
+staging-*/
+*.zip
